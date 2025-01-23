@@ -1,33 +1,84 @@
 library(shiny)
+library(shiny.fluent)
 library(bslib)
 library(gridlayout)
 
 
 #build shiny spp
-ui <- grid_page(
-  layout = c(
-      "      300px   1fr    1fr   ",
-      "100px header  header header",
-      "1fr   sidebar_a plot_a sidebar_b",
-      "1fr   sidebar_a plot_b sidebar_b",
-      "1fr   sidebar_a plot_c sidebar_b",
-      "1fr   sidebar_a plot_d sidebar_b"
+ui <- fluidPage(
+  tags$style(HTML("
+    .card-header {
+      background-color: #ADD8E6; 
+      color: black; 
+      padding: 10px; 
+      border-radius: 5px; 
+      font-weight: bold; 
+    }
+  ")),
+  tags$style(HTML("
+    .card-heat {
+      background-color: #FFDAB9; 
+      color: black; 
+      padding: 10px; 
+      border-radius: 5px; 
+      font-weight: bold; 
+    }
+  ")),
+  tabsetPanel(
+    id = "tabs",
+    tabPanel("About the app",
+             grid_card("description", "Description",
+                       HTML("<p>This app is a developed QMRA framework evaluating the infection risks of L. pneumophila for showers.&nbsp;To calculate the risk, the user needs to input values for the model parameters.&nbsp;The detailed explanation of each model parameter is provided below")),
+             grid_card("parameter", "Parameter", 
+                       HTML("<p>Parameters related to environmental condition </p>
+                              <li>1.&nbsp;Ventilation:&nbsp;ventilation rate for the shower stall or bathroom.</li>
+                               <li>2.&nbsp;Shower stall dimension:&nbsp;Length, width and height of the shower stall.</li>
+                               <li>3.&nbsp;Water temperature:&nbsp;either cold water (25℃) or hot water (40℃)  condition.</li>
+                               <li>4.&nbsp;Showerhead:&nbsp;either conventional showerhead or rain showerhead.</li>
+                             <p>(Based on the choice of showerhead types and water temperatures, aerosol generation rates obtained from our empirical study will be provided for the risk estimation. Mean and standard deviations of the aerosol generation rates are available. However, the data we provided are based on public shower stalls in Switzerland. Users can also input the size-resolved aerosol generation rates specfic to their scenarios.)</p>
+                               <p>Water quality </p>
+                               <li>1.&nbsp;First draw sample concentration:&nbsp;the concentration of L. pneumophila in the first liter of shower water.</li>
+                               <li>2.&nbsp;Flushed sample concentration:&nbsp;the average concentration of L. pneumophila in composite shower water samples. Steady state concentration of L. pneumophila during flushing can provide more accurate risk estimate if such data are available. </li>
+                               <p>Parameters related to human and human activities  </p>
+                               <li>1.&nbsp;Shower time:&nbsp;the time spent for a shower (from turning on showers to turning off showers).</li>
+                               <li>2.&nbsp;Shower frequency:&nbsp;how many times of showers do the person take per day?</li>
+                               <li>3.&nbsp;Morbidity:&nbsp;users can chose different demographic groups and input the specific morbidity ratios based on epidemiology data available</li>
+                            "))
+             
     ),
-    grid_card_text("header", "Quantitative microbial risk assessment for LeCo project"),
-    grid_card("sidebar_a","Exposure parameters",numericInput("Ventilation","Ventilation (m3/min)",value=0.7),numericInput("Con_leg_init","First draw sample concentration (CFU/L)",value=1000),
-    numericInput("Con_leg_steady","Flushed sample concentration (CFU/L)",value=100),
-    numericInput("Shower_length","Length of shower stall (m)",value=1.2),
-    numericInput("Shower_width","Width of shower stall (m)",value=0.9),
-    numericInput("Shower_height","Height of shower stall (m)",value=2.3),
-    numericInput("Shower_frequency","Shower frequency (#/day)",value=1),
-    numericInput("Shower_duration","Shower time (min)",value=15),
-    checkboxGroupInput("Water_tem","Water temperature",choices=c("Hot water"=1,"Cold water"=2),selected = 1),
-    checkboxGroupInput("showerhead","Showerhead type",choices = c("Conventional showerhead"=1,"Rain showerhead"=2),selected = 1),
-    selectInput("Generation","Aerosol generation rate",choices = c("Mean"=1,"Mean + standard deviation"=2,"Mean - standard deviation"=3),selected = 1),
-    selectInput("aerosol","Do you want to use your own aerosol generation rates?",choices = c("No"=1,"Yes"=2),selected = 1),
-    uiOutput("dynamic")),
-    grid_card("sidebar_b","Risk characterization parameters",checkboxGroupInput("Target_group","Targeted group of people",choices = c("Adult"=1,"Elderly"=2,"Child"=3),selected = 1),uiOutput("demographic")),
-    grid_card("plot_a","Conventional showerhead",(plotOutput("cumulative_risk_conventional"))),grid_card("plot_b","Rain showerhead",plotOutput("cumulative_risk_rain")),grid_card("plot_c","User defined scenario",plotOutput("cumulative_risk_user")),grid_card("plot_d","Risk for different demographic groups",plotOutput("risk_group"))
+    tabPanel("QMRA",
+             grid_page(
+               layout = c(
+                 "      300px   1fr    1fr  1fr ",
+                 "100px header  header header header",
+                 "1fr   sidebar_a plot_a plot_b plot_c",
+                 "1fr   sidebar_a plot_d plot_d sidebar_b"
+               ),
+               grid_card_text("header", "Quantitative microbial risk assessment for LeCo project"),
+               grid_card("sidebar_a", "Exposure parameters",
+                         class="card-header",
+                         numericInput("Ventilation", "Ventilation (m3/min)", value = 0.7),
+                         numericInput("Con_leg_init", "First draw sample concentration (CFU/L)", value = 1000),
+                         numericInput("Con_leg_steady", "Flushed sample concentration (CFU/L)", value = 100),
+                         numericInput("Shower_length", "Length of shower stall (m)", value = 1.2),
+                         numericInput("Shower_width", "Width of shower stall (m)", value = 0.9),
+                         numericInput("Shower_height", "Height of shower stall (m)", value = 2.3),
+                         numericInput("Shower_frequency", "Shower frequency (#/day)", value = 1),
+                         numericInput("Shower_duration", "Shower time (min)", value = 15),
+                         checkboxGroupInput("Water_tem", "Water temperature", choices = c("Hot water" = 1, "Cold water" = 2), selected = 1),
+                         checkboxGroupInput("showerhead", "Showerhead type", choices = c("Conventional showerhead" = 1, "Rain showerhead" = 2), selected = 1),
+                         selectInput("Generation", "Aerosol generation rate", choices = c("Mean" = 1, "Mean + standard deviation" = 2, "Mean - standard deviation" = 3), selected = 1),selectInput("aerosol", "Do you want to use your own aerosol generation rates?", choices = c("No" = 1, "Yes" = 2), selected = 1),uiOutput("dynamic")),
+               grid_card("sidebar_b", "Parameters for demographic groups",
+                         class="card-heat",
+                         checkboxGroupInput("Target_group", "Targeted group of people", choices = c("Adult" = 1, "Elderly" = 2, "Child" = 3), selected = 1),
+                         uiOutput("demographic")),
+               grid_card("plot_a", "Conventional showerhead",plotOutput("cumulative_risk_conventional")),
+               grid_card("plot_b", "Rain showerhead", plotOutput("cumulative_risk_rain")),
+               grid_card("plot_c", "User defined scenario", plotOutput("cumulative_risk_user")),
+               grid_card("plot_d", "Risk for different demographic groups", plotOutput("risk_group"))
+             )
+    )
+  )
 )
 
 server <- function(input, output) {
@@ -195,19 +246,19 @@ source("C:/Users/lizha/Desktop/Content.R")
     risk_time_conv <- if (identical(input$Water_tem,c("1")) && 1 %in% input$showerhead) { risk_hot_conv_time() } else if (identical(input$Water_tem,c("2")) && 1 %in% input$showerhead) { risk_cold_conv_time() } else if (identical(input$Water_tem,c("1","2")) && 1 %in% input$showerhead) {rbind(risk_cold_conv_time(),risk_hot_conv_time())} else {data_blank_2()}
     ggplot(risk_time_conv,aes(x=Time,y=risk_median,group=Condition))+geom_line()+scale_y_continuous(trans='log10',label=scientific_10)+scale_x_continuous(breaks = seq(0,input$Shower_duration,b=1))+xlab("Time (min)")+ylab("Cumulative risk of infection")+geom_ribbon(aes(x=Time,ymax=risk_higher,ymin=risk_lower,fill=Condition),show.legend = TRUE,linetype="dashed",alpha=0.5,col="black")+scale_fill_brewer(palette="Pastel1",direction=-1)+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                                                                                                   panel.grid.minor = element_blank(),panel.background = element_blank(),
-                                                                                                                                                                                                                                                                                                                                                                                                                                  panel.border = element_rect(colour = "black", fill=NA, size=2))
+                                                                                                                                                                                                                                                                                                                                                                                                                                  panel.border = element_rect(colour = "black", fill=NA, size=2),text=element_text(size=20))
   })
   output$cumulative_risk_rain <- renderPlot({
     risk_time_rain <- if (identical(input$Water_tem,c("1")) && 2 %in% input$showerhead) { risk_hot_rain_time() } else if (identical(input$Water_tem,c("2")) && 2 %in% input$showerhead) { risk_cold_rain_time() } else if (identical(input$Water_tem,c("1","2")) && 2 %in% input$showerhead) {rbind(risk_cold_rain_time(),risk_hot_rain_time())} else {data_blank_2()}
     ggplot(risk_time_rain,aes(x=Time,y=risk_median,group=Condition))+geom_line()+scale_y_continuous(trans='log10',label=scientific_10)+scale_x_continuous(breaks = seq(0,input$Shower_duration,b=1))+xlab("Time (min)")+ylab("Cumulative risk of infection")+geom_ribbon(aes(x=Time,ymax=risk_higher,ymin=risk_lower,fill=Condition),show.legend = TRUE,linetype="dashed",alpha=0.5,col="black")+scale_fill_brewer(palette="Pastel1",direction=-1)+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                                                                                                                      panel.grid.minor = element_blank(),panel.background = element_blank(),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                     panel.border = element_rect(colour = "black", fill=NA, size=2))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                     panel.border = element_rect(colour = "black", fill=NA, size=2),text=element_text(size=20))
   })
   output$cumulative_risk_user <- renderPlot({
     risk_time_user <- if (input$aerosol==2) { risk_define_time() } else {data_blank_2()} 
     ggplot(risk_time_user,aes(x=Time,y=risk_median))+geom_line()+scale_y_continuous(trans='log10',label=scientific_10)+scale_x_continuous(breaks = seq(0,input$Shower_duration,b=1))+xlab("Time (min)")+ylab("Cumulative risk of infection")+geom_ribbon(aes(x=Time,ymax=risk_higher,ymin=risk_lower,fill=Condition),show.legend = FALSE,linetype="dashed",alpha=0.5,col="black")+scale_fill_brewer(palette="Greys",direction=1)+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                                                                                                                           panel.grid.minor = element_blank(),panel.background = element_blank(),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                          panel.border = element_rect(colour = "black", fill=NA, size=2))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                          panel.border = element_rect(colour = "black", fill=NA, size=2),text=element_text(size=20))
   })
   output$risk_group <- renderPlot({
     risk_people<-if (input$aerosol==1) {risk_group_combine()} else {rbind(risk_group_combine(),risk_define_adult_data(),risk_define_child_data(),risk_define_elderly_data())}
