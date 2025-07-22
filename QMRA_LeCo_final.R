@@ -5,7 +5,17 @@ library(reshape2)
 library(mc2d)
 library(MASS)
 scientific_10 <- function(x) {
-  parse(text=gsub("e", " %*% 10^", scales::scientific_format()(x)))
+  sapply(x, function(val) {
+    if (is.na(val)) return(NA)  
+    if (val == 0) return("0")   
+    exponent <- floor(log10(val))
+    base <- val / 10^exponent
+    if (base == 1) {
+      return(paste0("10^", exponent))
+    } else {
+      return(paste0(base, " %*% 10^", exponent))
+    }
+  })
 }
 
 Tem<-303 #Temperature
@@ -39,18 +49,15 @@ v_floor=vs/(1-exp(-vs*I/u_friction)) #deposition velocity on floor
 
 set.seed(100)
 # Parameter bacteria
+## Import the dataset called Con_leg before running the model
 release_constant<-5
-######### Import the dataset named Con_leg here ##########
-glm.leg<-glm.nb(Flushed~First_draw,data=Con_leg,link='identity')
-betas<-coef(glm.leg)
-vcov<-vcov(glm.leg)
-betas_simulated<-MASS::mvrnorm(1000, betas, vcov)
-coe_leg<-unname(betas_simulated[,2])
-Intercept_leg<-unname(betas_simulated[,1])
-Init_con_cold<-1000*rgamma(1000,shape=0.7,rate=5.912e-5)
-Init_con_hot<-1000*rgamma(1000,shape=0.361,rate=1.09e-4)
-steady_con_cold<-Init_con_cold*coe_leg+Intercept_leg
-steady_con_hot<-Init_con_hot*coe_leg+Intercept_leg
+glm.leg<-glm.nb(Flushed~log(First_draw+1),data=Con_leg, control = glm.control(maxit = 1000, epsilon = 1e-8))
+Init_con_hot<-1000*rgamma(1000,shape=0.386,rate=1.29e-4)
+Init_con_cold<-1000*rgamma(1000,shape=0.67,rate=5.9e-5)
+data_init_cold<-data.frame(First_draw=Init_con_cold/1000*0.5)
+data_init_hot<-data.frame(First_draw=Init_con_hot/1000*0.5)
+steady_con_cold<-predict(glm.leg,newdata = data_init_cold,type = "response")/0.5*1000
+steady_con_hot<-predict(glm.leg, newdata = data_init_hot,type = "response")/0.5*1000
 
 
 Inhalation<-runif(1000,min=0.013,max=0.017)
@@ -75,16 +82,12 @@ time <- seq(from=0, to=duration, by = time_step)
 Morbidity_child<-0.000322
 Morbidity_adult<-0.012147
 Morbidity_elderly<-0.037531
-Disease_severity_Pontiac<-0.1
 Disease_severity_LD<-0.3
-Disease_duration_Pontiac<-3.5
 Disease_duration_LD<-21
-Pontiac_percentage<-0.95
-LD_percentage<-0.05
 Mortality_LD<-0.004
 Mean_age_paitent<-62.2
 Life_expenctancy<-84
-YLD<-(Disease_severity_Pontiac*Disease_duration_Pontiac/365*Pontiac_percentage)+(Disease_severity_LD*Disease_duration_LD/365*LD_percentage)
+YLD<-(Disease_severity_LD*Disease_duration_LD/365)
 YLL<-(Life_expenctancy-Mean_age_paitent)*Mortality_LD
 DALY<-YLL+YLD
 
@@ -169,39 +172,86 @@ Risk_cold_conv<-t(Risk_cold_conv_t)
 Risk_cold_conv_child<-Morbidity_child*Risk_cold_conv[duration/time_step+1,]
 Risk_cold_conv_adult<-Morbidity_adult*Risk_cold_conv[duration/time_step+1,]
 Risk_cold_conv_elderly<-Morbidity_elderly*Risk_cold_conv[duration/time_step+1,]
-Risk_cold_conv_annual<-1-(1-Risk_cold_conv)^365
-Risk_cold_conv_child_annual<-1-(1-Risk_cold_conv_child)^365
-Risk_cold_conv_adult_annual<-1-(1-Risk_cold_conv_adult)^365
-Risk_cold_conv_elderly_annual<-1-(1-Risk_cold_conv_elderly)^365
-Risk_cold_conv_DALY<-Risk_cold_conv_annual[duration/time_step+1,]*DALY
+Risk_cold_conv_annual<- data.frame(matrix(nrow = 1501, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_cold_conv)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_cold_conv_annual[,i]<-risk_annual
+}
+Risk_cold_conv_child_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_cold_conv_child)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_cold_conv_child_annual[i]<-risk_annual
+}
+Risk_cold_conv_adult_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_cold_conv_adult)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_cold_conv_adult_annual[i]<-risk_annual
+}
+Risk_cold_conv_elderly_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_cold_conv_elderly)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_cold_conv_elderly_annual[i]<-risk_annual
+}
+Risk_cold_conv_DALY_child<-Risk_cold_conv_child_annual*DALY
+Risk_cold_conv_DALY_adult<-Risk_cold_conv_adult_annual*DALY
+Risk_cold_conv_DALY_elderly<-Risk_cold_conv_elderly_annual*DALY
 Dose_cold_conv_discrete<-rbind(Dose_cold_conv_1,Dose_cold_conv_2,Dose_cold_conv_3,Dose_cold_conv_4,Dose_cold_conv_5,Dose_cold_conv_6,Dose_cold_conv_7,Dose_cold_conv_8,Dose_cold_conv_9,Dose_cold_conv_10,Dose_cold_conv_11,Dose_cold_conv_12,Dose_cold_conv_13,Dose_cold_conv_14,Dose_cold_conv_15)
 Risk_cold_conv_discrete_t<-1-exp(-r_inf*t(Dose_cold_conv_discrete))
 Risk_cold_conv_discrete<-t(Risk_cold_conv_discrete_t)
-Risk_cold_conv_discrete_annual<-1-(1-Risk_cold_conv_discrete)^365
+Risk_cold_conv_discrete_annual<-data.frame(matrix(nrow = 15, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_cold_conv_discrete)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_cold_conv_discrete_annual[,i]<-risk_annual
+}
 
 median_risk_cold_conv<-apply(Risk_cold_conv_annual,1,median)
-percentile_risk_low_cold_conv<-apply(Risk_cold_conv_annual,1,quantile,probs=c(.25))
-percentile_risk_high_cold_conv<-apply(Risk_cold_conv_annual,1,quantile,probs=c(.75))
+percentile_risk_low_cold_conv<-apply(Risk_cold_conv_annual,1,quantile,probs=c(.025))
+percentile_risk_high_cold_conv<-apply(Risk_cold_conv_annual,1,quantile,probs=c(.975))
 risk_overall_cold_conv<-data.frame(Time=seq(from=0,to=duration,by=time_step),risk_median=median_risk_cold_conv,risk_lower=percentile_risk_low_cold_conv,risk_higher=percentile_risk_high_cold_conv,Condition=rep("Cold water",1501),Type=rep("Conventional showerhead",1501))
 Final_risk_cold_conv_child<-data.frame(Risk=as.vector(Risk_cold_conv_child_annual),Group=rep("Child",1000),Condition=rep("Cold water_conventional showerhead",1000))
 Final_risk_cold_conv_adult<-data.frame(Risk=as.vector(Risk_cold_conv_adult_annual),Group=rep("Adult",1000),Condition=rep("Cold water_conventional showerhead",1000))
 Final_risk_cold_conv_elderly<-data.frame(Risk=as.vector(Risk_cold_conv_elderly_annual),Group=rep("Elderly",1000),Condition=rep("Cold water_conventional showerhead",1000))
-Final_risk_cold_conv_DALY<-data.frame(Risk=as.vector(Risk_cold_conv_DALY),Group=rep("DALY",1000),Condition=rep("Cold water_conventional showerhead",1000))
-Risk_cold_conv_discrete_1<-data.frame(Risk=Risk_cold_conv_discrete_annual[1,],Time=rep("A",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_2<-data.frame(Risk=Risk_cold_conv_discrete_annual[2,],Time=rep("B",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_3<-data.frame(Risk=Risk_cold_conv_discrete_annual[3,],Time=rep("C",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_4<-data.frame(Risk=Risk_cold_conv_discrete_annual[4,],Time=rep("D",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_5<-data.frame(Risk=Risk_cold_conv_discrete_annual[5,],Time=rep("E",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_6<-data.frame(Risk=Risk_cold_conv_discrete_annual[6,],Time=rep("F",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_7<-data.frame(Risk=Risk_cold_conv_discrete_annual[7,],Time=rep("G",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_8<-data.frame(Risk=Risk_cold_conv_discrete_annual[8,],Time=rep("H",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_9<-data.frame(Risk=Risk_cold_conv_discrete_annual[9,],Time=rep("I",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_10<-data.frame(Risk=Risk_cold_conv_discrete_annual[10,],Time=rep("J",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_11<-data.frame(Risk=Risk_cold_conv_discrete_annual[11,],Time=rep("K",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_12<-data.frame(Risk=Risk_cold_conv_discrete_annual[12,],Time=rep("L",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_13<-data.frame(Risk=Risk_cold_conv_discrete_annual[13,],Time=rep("M",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_14<-data.frame(Risk=Risk_cold_conv_discrete_annual[14,],Time=rep("N",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
-Risk_cold_conv_discrete_15<-data.frame(Risk=Risk_cold_conv_discrete_annual[15,],Time=rep("O",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Final_risk_cold_conv_DALY_child<-data.frame(Risk=unlist(Risk_cold_conv_DALY_child),Group=rep("Child",1000),Condition=rep("Cold water_conventional showerhead",1000))
+Final_risk_cold_conv_DALY_adult<-data.frame(Risk=unlist(Risk_cold_conv_DALY_adult),Group=rep("Adult",1000),Condition=rep("Cold water_conventional showerhead",1000))
+Final_risk_cold_conv_DALY_elderly<-data.frame(Risk=unlist(Risk_cold_conv_DALY_elderly),Group=rep("Elderly",1000),Condition=rep("Cold water_conventional showerhead",1000))
+Risk_cold_conv_discrete_1<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[1,]),Time=rep("A",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_2<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[2,]),Time=rep("B",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_3<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[3,]),Time=rep("C",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_4<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[4,]),Time=rep("D",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_5<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[5,]),Time=rep("E",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_6<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[6,]),Time=rep("F",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_7<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[7,]),Time=rep("G",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_8<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[8,]),Time=rep("H",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_9<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[9,]),Time=rep("I",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_10<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[10,]),Time=rep("J",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_11<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[11,]),Time=rep("K",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_12<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[12,]),Time=rep("L",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_13<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[13,]),Time=rep("M",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_14<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[14,]),Time=rep("N",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
+Risk_cold_conv_discrete_15<-data.frame(Risk=unlist(Risk_cold_conv_discrete_annual[15,]),Time=rep("O",1000),Condition=rep("Cold water",1000),Type=rep("Conventional showerhead",1000))
 Risk_cold_conv_discrete_overall<-rbind(Risk_cold_conv_discrete_1,Risk_cold_conv_discrete_2,Risk_cold_conv_discrete_3,Risk_cold_conv_discrete_4,Risk_cold_conv_discrete_5,Risk_cold_conv_discrete_6,Risk_cold_conv_discrete_7,Risk_cold_conv_discrete_8,Risk_cold_conv_discrete_9,Risk_cold_conv_discrete_10,Risk_cold_conv_discrete_11,Risk_cold_conv_discrete_12,Risk_cold_conv_discrete_13,Risk_cold_conv_discrete_14,Risk_cold_conv_discrete_15)
 
 
@@ -284,39 +334,86 @@ Risk_cold_rain<-t(Risk_cold_rain_t)
 Risk_cold_rain_child<-Morbidity_child*Risk_cold_rain[duration/time_step+1,]
 Risk_cold_rain_adult<-Morbidity_adult*Risk_cold_rain[duration/time_step+1,]
 Risk_cold_rain_elderly<-Morbidity_elderly*Risk_cold_rain[duration/time_step+1,]
-Risk_cold_rain_annual<-1-(1-Risk_cold_rain)^365
-Risk_cold_rain_child_annual<-1-(1-Risk_cold_rain_child)^365
-Risk_cold_rain_adult_annual<-1-(1-Risk_cold_rain_adult)^365
-Risk_cold_rain_elderly_annual<-1-(1-Risk_cold_rain_elderly)^365
-Risk_cold_rain_DALY<-Risk_cold_rain_annual[duration/time_step+1,]*DALY
+Risk_cold_rain_annual<- data.frame(matrix(nrow = 1501, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_cold_rain)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_cold_rain_annual[,i]<-risk_annual
+}
+Risk_cold_rain_child_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_cold_rain_child)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_cold_rain_child_annual[i]<-risk_annual
+}
+Risk_cold_rain_adult_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_cold_rain_adult)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_cold_rain_adult_annual[i]<-risk_annual
+}
+Risk_cold_rain_elderly_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_cold_rain_elderly)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_cold_rain_elderly_annual[i]<-risk_annual
+}
+Risk_cold_rain_DALY_child<-Risk_cold_rain_child_annual*DALY
+Risk_cold_rain_DALY_adult<-Risk_cold_rain_adult_annual*DALY
+Risk_cold_rain_DALY_elderly<-Risk_cold_rain_elderly_annual*DALY
 Dose_cold_rain_discrete<-rbind(Dose_cold_rain_1,Dose_cold_rain_2,Dose_cold_rain_3,Dose_cold_rain_4,Dose_cold_rain_5,Dose_cold_rain_6,Dose_cold_rain_7,Dose_cold_rain_8,Dose_cold_rain_9,Dose_cold_rain_10,Dose_cold_rain_11,Dose_cold_rain_12,Dose_cold_rain_13,Dose_cold_rain_14,Dose_cold_rain_15)
 Risk_cold_rain_discrete_t<-1-exp(-r_inf*t(Dose_cold_rain_discrete))
 Risk_cold_rain_discrete<-t(Risk_cold_rain_discrete_t)
-Risk_cold_rain_discrete_annual<-1-(1-Risk_cold_rain_discrete)^365
+Risk_cold_rain_discrete_annual<-data.frame(matrix(nrow = 15, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_cold_rain_discrete)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_cold_rain_discrete_annual[,i]<-risk_annual
+}
 
 median_risk_cold_rain<-apply(Risk_cold_rain_annual,1,median)
-percentile_risk_low_cold_rain<-apply(Risk_cold_rain_annual,1,quantile,probs=c(.25))
-percentile_risk_high_cold_rain<-apply(Risk_cold_rain_annual,1,quantile,probs=c(.75))
+percentile_risk_low_cold_rain<-apply(Risk_cold_rain_annual,1,quantile,probs=c(.025))
+percentile_risk_high_cold_rain<-apply(Risk_cold_rain_annual,1,quantile,probs=c(.975))
 risk_overall_cold_rain<-data.frame(Time=seq(from=0,to=duration,by=time_step),risk_median=median_risk_cold_rain,risk_lower=percentile_risk_low_cold_rain,risk_higher=percentile_risk_high_cold_rain,Condition=rep("Cold water",1501),Type=rep("Rain showerhead",1501))
 Final_risk_cold_rain_child<-data.frame(Risk=as.vector(Risk_cold_rain_child_annual),Group=rep("Child",1000),Condition=rep("Cold water_rain showerhead",1000))
 Final_risk_cold_rain_adult<-data.frame(Risk=as.vector(Risk_cold_rain_adult_annual),Group=rep("Adult",1000),Condition=rep("Cold water_rain showerhead",1000))
 Final_risk_cold_rain_elderly<-data.frame(Risk=as.vector(Risk_cold_rain_elderly_annual),Group=rep("Elderly",1000),Condition=rep("Cold water_rain showerhead",1000))
-Final_risk_cold_rain_DALY<-data.frame(Risk=as.vector(Risk_cold_rain_DALY),Group=rep("DALY",1000),Condition=rep("Cold water_rain showerhead",1000))
-Risk_cold_rain_discrete_1<-data.frame(Risk=Risk_cold_rain_discrete_annual[1,],Time=rep("A",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_2<-data.frame(Risk=Risk_cold_rain_discrete_annual[2,],Time=rep("B",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_3<-data.frame(Risk=Risk_cold_rain_discrete_annual[3,],Time=rep("C",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_4<-data.frame(Risk=Risk_cold_rain_discrete_annual[4,],Time=rep("D",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_5<-data.frame(Risk=Risk_cold_rain_discrete_annual[5,],Time=rep("E",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_6<-data.frame(Risk=Risk_cold_rain_discrete_annual[6,],Time=rep("F",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_7<-data.frame(Risk=Risk_cold_rain_discrete_annual[7,],Time=rep("G",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_8<-data.frame(Risk=Risk_cold_rain_discrete_annual[8,],Time=rep("H",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_9<-data.frame(Risk=Risk_cold_rain_discrete_annual[9,],Time=rep("I",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_10<-data.frame(Risk=Risk_cold_rain_discrete_annual[10,],Time=rep("J",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_11<-data.frame(Risk=Risk_cold_rain_discrete_annual[11,],Time=rep("K",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_12<-data.frame(Risk=Risk_cold_rain_discrete_annual[12,],Time=rep("L",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_13<-data.frame(Risk=Risk_cold_rain_discrete_annual[13,],Time=rep("M",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_14<-data.frame(Risk=Risk_cold_rain_discrete_annual[14,],Time=rep("N",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
-Risk_cold_rain_discrete_15<-data.frame(Risk=Risk_cold_rain_discrete_annual[15,],Time=rep("O",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Final_risk_cold_rain_DALY_child<-data.frame(Risk=unlist(Risk_cold_rain_DALY_child),Group=rep("Child",1000),Condition=rep("Cold water_rain showerhead",1000))
+Final_risk_cold_rain_DALY_adult<-data.frame(Risk=unlist(Risk_cold_rain_DALY_adult),Group=rep("Adult",1000),Condition=rep("Cold water_rain showerhead",1000))
+Final_risk_cold_rain_DALY_elderly<-data.frame(Risk=unlist(Risk_cold_rain_DALY_elderly),Group=rep("Elderly",1000),Condition=rep("Cold water_rain showerhead",1000))
+Risk_cold_rain_discrete_1<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[1,]),Time=rep("A",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_2<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[2,]),Time=rep("B",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_3<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[3,]),Time=rep("C",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_4<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[4,]),Time=rep("D",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_5<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[5,]),Time=rep("E",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_6<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[6,]),Time=rep("F",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_7<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[7,]),Time=rep("G",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_8<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[8,]),Time=rep("H",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_9<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[9,]),Time=rep("I",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_10<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[10,]),Time=rep("J",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_11<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[11,]),Time=rep("K",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_12<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[12,]),Time=rep("L",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_13<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[13,]),Time=rep("M",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_14<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[14,]),Time=rep("N",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
+Risk_cold_rain_discrete_15<-data.frame(Risk=unlist(Risk_cold_rain_discrete_annual[15,]),Time=rep("O",1000),Condition=rep("Cold water",1000),Type=rep("Rain showerhead",1000))
 Risk_cold_rain_discrete_overall<-rbind(Risk_cold_rain_discrete_1,Risk_cold_rain_discrete_2,Risk_cold_rain_discrete_3,Risk_cold_rain_discrete_4,Risk_cold_rain_discrete_5,Risk_cold_rain_discrete_6,Risk_cold_rain_discrete_7,Risk_cold_rain_discrete_8,Risk_cold_rain_discrete_9,Risk_cold_rain_discrete_10,Risk_cold_rain_discrete_11,Risk_cold_rain_discrete_12,Risk_cold_rain_discrete_13,Risk_cold_rain_discrete_14,Risk_cold_rain_discrete_15)
 
 #hot water conventional showerhead
@@ -439,39 +536,86 @@ Risk_hot_conv<-t(Risk_hot_conv_t)
 Risk_hot_conv_child<-Morbidity_child*Risk_hot_conv[duration/time_step+1,]
 Risk_hot_conv_adult<-Morbidity_adult*Risk_hot_conv[duration/time_step+1,]
 Risk_hot_conv_elderly<-Morbidity_elderly*Risk_hot_conv[duration/time_step+1,]
-Risk_hot_conv_annual<-1-(1-Risk_hot_conv)^365
-Risk_hot_conv_child_annual<-1-(1-Risk_hot_conv_child)^365
-Risk_hot_conv_adult_annual<-1-(1-Risk_hot_conv_adult)^365
-Risk_hot_conv_elderly_annual<-1-(1-Risk_hot_conv_elderly)^365
-Risk_hot_conv_DALY<-Risk_hot_conv_annual[duration/time_step+1,]*DALY
+Risk_hot_conv_annual<- data.frame(matrix(nrow = 1501, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_hot_conv)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_hot_conv_annual[,i]<-risk_annual
+}
+Risk_hot_conv_child_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_hot_conv_child)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_hot_conv_child_annual[i]<-risk_annual
+}
+Risk_hot_conv_adult_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_hot_conv_adult)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_hot_conv_adult_annual[i]<-risk_annual
+}
+Risk_hot_conv_elderly_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_hot_conv_elderly)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_hot_conv_elderly_annual[i]<-risk_annual
+}
+Risk_hot_conv_DALY_child<-Risk_hot_conv_child_annual*DALY
+Risk_hot_conv_DALY_adult<-Risk_hot_conv_adult_annual*DALY
+Risk_hot_conv_DALY_elderly<-Risk_hot_conv_elderly_annual*DALY
 Dose_hot_conv_discrete<-rbind(Dose_hot_conv_1,Dose_hot_conv_2,Dose_hot_conv_3,Dose_hot_conv_4,Dose_hot_conv_5,Dose_hot_conv_6,Dose_hot_conv_7,Dose_hot_conv_8,Dose_hot_conv_9,Dose_hot_conv_10,Dose_hot_conv_11,Dose_hot_conv_12,Dose_hot_conv_13,Dose_hot_conv_14,Dose_hot_conv_15)
 Risk_hot_conv_discrete_t<-1-exp(-r_inf*t(Dose_hot_conv_discrete))
 Risk_hot_conv_discrete<-t(Risk_hot_conv_discrete_t)
-Risk_hot_conv_discrete_annual<-1-(1-Risk_hot_conv_discrete)^365
+Risk_hot_conv_discrete_annual<-data.frame(matrix(nrow = 15, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_hot_conv_discrete)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_hot_conv_discrete_annual[,i]<-risk_annual
+}
 
 median_risk_hot_conv<-apply(Risk_hot_conv_annual,1,median)
-percentile_risk_low_hot_conv<-apply(Risk_hot_conv_annual,1,quantile,probs=c(.25))
-percentile_risk_high_hot_conv<-apply(Risk_hot_conv_annual,1,quantile,probs=c(.75))
+percentile_risk_low_hot_conv<-apply(Risk_hot_conv_annual,1,quantile,probs=c(.025))
+percentile_risk_high_hot_conv<-apply(Risk_hot_conv_annual,1,quantile,probs=c(.975))
 risk_overall_hot_conv<-data.frame(Time=seq(from=0,to=duration,by=time_step),risk_median=median_risk_hot_conv,risk_lower=percentile_risk_low_hot_conv,risk_higher=percentile_risk_high_hot_conv,Condition=rep("Hot water",1501),Type=rep("Conventional showerhead",1501))
 Final_risk_hot_conv_child<-data.frame(Risk=as.vector(Risk_hot_conv_child_annual),Group=rep("Child",1000),Condition=rep("Hot water_conventional showerhead",1000))
 Final_risk_hot_conv_adult<-data.frame(Risk=as.vector(Risk_hot_conv_adult_annual),Group=rep("Adult",1000),Condition=rep("Hot water_conventional showerhead",1000))
 Final_risk_hot_conv_elderly<-data.frame(Risk=as.vector(Risk_hot_conv_elderly_annual),Group=rep("Elderly",1000),Condition=rep("Hot water_conventional showerhead",1000))
-Final_risk_hot_conv_DALY<-data.frame(Risk=as.vector(Risk_hot_conv_DALY),Group=rep("DALY",1000),Condition=rep("Hot water_conventional showerhead",1000))
-Risk_hot_conv_discrete_1<-data.frame(Risk=Risk_hot_conv_discrete_annual[1,],Time=rep("A",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_2<-data.frame(Risk=Risk_hot_conv_discrete_annual[2,],Time=rep("B",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_3<-data.frame(Risk=Risk_hot_conv_discrete_annual[3,],Time=rep("C",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_4<-data.frame(Risk=Risk_hot_conv_discrete_annual[4,],Time=rep("D",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_5<-data.frame(Risk=Risk_hot_conv_discrete_annual[5,],Time=rep("E",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_6<-data.frame(Risk=Risk_hot_conv_discrete_annual[6,],Time=rep("F",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_7<-data.frame(Risk=Risk_hot_conv_discrete_annual[7,],Time=rep("G",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_8<-data.frame(Risk=Risk_hot_conv_discrete_annual[8,],Time=rep("H",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_9<-data.frame(Risk=Risk_hot_conv_discrete_annual[9,],Time=rep("I",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_10<-data.frame(Risk=Risk_hot_conv_discrete_annual[10,],Time=rep("J",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_11<-data.frame(Risk=Risk_hot_conv_discrete_annual[11,],Time=rep("K",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_12<-data.frame(Risk=Risk_hot_conv_discrete_annual[12,],Time=rep("L",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_13<-data.frame(Risk=Risk_hot_conv_discrete_annual[13,],Time=rep("M",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_14<-data.frame(Risk=Risk_hot_conv_discrete_annual[14,],Time=rep("N",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
-Risk_hot_conv_discrete_15<-data.frame(Risk=Risk_hot_conv_discrete_annual[15,],Time=rep("O",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Final_risk_hot_conv_DALY_child<-data.frame(Risk=unlist(Risk_hot_conv_DALY_child),Group=rep("Child",1000),Condition=rep("Hot water_conventional showerhead",1000))
+Final_risk_hot_conv_DALY_adult<-data.frame(Risk=unlist(Risk_hot_conv_DALY_adult),Group=rep("Adult",1000),Condition=rep("Hot water_conventional showerhead",1000))
+Final_risk_hot_conv_DALY_elderly<-data.frame(Risk=unlist(Risk_hot_conv_DALY_elderly),Group=rep("Elderly",1000),Condition=rep("Hot water_conventional showerhead",1000))
+Risk_hot_conv_discrete_1<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[1,]),Time=rep("A",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_2<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[2,]),Time=rep("B",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_3<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[3,]),Time=rep("C",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_4<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[4,]),Time=rep("D",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_5<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[5,]),Time=rep("E",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_6<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[6,]),Time=rep("F",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_7<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[7,]),Time=rep("G",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_8<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[8,]),Time=rep("H",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_9<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[9,]),Time=rep("I",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_10<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[10,]),Time=rep("J",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_11<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[11,]),Time=rep("K",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_12<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[12,]),Time=rep("L",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_13<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[13,]),Time=rep("M",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_14<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[14,]),Time=rep("N",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
+Risk_hot_conv_discrete_15<-data.frame(Risk=unlist(Risk_hot_conv_discrete_annual[15,]),Time=rep("O",1000),Condition=rep("Hot water",1000),Type=rep("Conventional showerhead",1000))
 Risk_hot_conv_discrete_overall<-rbind(Risk_hot_conv_discrete_1,Risk_hot_conv_discrete_2,Risk_hot_conv_discrete_3,Risk_hot_conv_discrete_4,Risk_hot_conv_discrete_5,Risk_hot_conv_discrete_6,Risk_hot_conv_discrete_7,Risk_hot_conv_discrete_8,Risk_hot_conv_discrete_9,Risk_hot_conv_discrete_10,Risk_hot_conv_discrete_11,Risk_hot_conv_discrete_12,Risk_hot_conv_discrete_13,Risk_hot_conv_discrete_14,Risk_hot_conv_discrete_15)
 
 #hot water rain showerhead
@@ -595,39 +739,86 @@ Risk_hot_rain<-t(Risk_hot_rain_t)
 Risk_hot_rain_child<-Morbidity_child*Risk_hot_rain[duration/time_step+1,]
 Risk_hot_rain_adult<-Morbidity_adult*Risk_hot_rain[duration/time_step+1,]
 Risk_hot_rain_elderly<-Morbidity_elderly*Risk_hot_rain[duration/time_step+1,]
-Risk_hot_rain_annual<-1-(1-Risk_hot_rain)^365
-Risk_hot_rain_child_annual<-1-(1-Risk_hot_rain_child)^365
-Risk_hot_rain_adult_annual<-1-(1-Risk_hot_rain_adult)^365
-Risk_hot_rain_elderly_annual<-1-(1-Risk_hot_rain_elderly)^365
-Risk_hot_rain_DALY<-Risk_hot_rain_annual[duration/time_step+1,]*DALY
+Risk_hot_rain_annual<- data.frame(matrix(nrow = 1501, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_hot_rain)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_hot_rain_annual[,i]<-risk_annual
+}
+Risk_hot_rain_child_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_hot_rain_child)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_hot_rain_child_annual[i]<-risk_annual
+}
+Risk_hot_rain_adult_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_hot_rain_adult)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_hot_rain_adult_annual[i]<-risk_annual
+}
+Risk_hot_rain_elderly_annual<-c()
+for (i in 1:1000){
+  df <- as.vector(Risk_hot_rain_elderly)
+  random_columns <- sample(df, size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  row_product<-prod(new_df)
+  risk_annual<-1-row_product
+  Risk_hot_rain_elderly_annual[i]<-risk_annual
+}
+Risk_hot_rain_DALY_child<-Risk_hot_rain_child_annual*DALY
+Risk_hot_rain_DALY_adult<-Risk_hot_rain_adult_annual*DALY
+Risk_hot_rain_DALY_elderly<-Risk_hot_rain_elderly_annual*DALY
 Dose_hot_rain_discrete<-rbind(Dose_hot_rain_1,Dose_hot_rain_2,Dose_hot_rain_3,Dose_hot_rain_4,Dose_hot_rain_5,Dose_hot_rain_6,Dose_hot_rain_7,Dose_hot_rain_8,Dose_hot_rain_9,Dose_hot_rain_10,Dose_hot_rain_11,Dose_hot_rain_12,Dose_hot_rain_13,Dose_hot_rain_14,Dose_hot_rain_15)
 Risk_hot_rain_discrete_t<-1-exp(-r_inf*t(Dose_hot_rain_discrete))
 Risk_hot_rain_discrete<-t(Risk_hot_rain_discrete_t)
-Risk_hot_rain_discrete_annual<-1-(1-Risk_hot_rain_discrete)^365
+Risk_hot_rain_discrete_annual<-data.frame(matrix(nrow = 15, ncol = 1000))
+for (i in 1:1000){
+  df <- as.data.frame(Risk_hot_rain_discrete)
+  random_columns <- sample(ncol(df), size = 365, replace = TRUE)
+  new_df<-1-random_columns
+  new_df <- df[, random_columns]
+  new_df<-1-new_df
+  row_product<-apply(new_df,1,prod)
+  risk_annual<-1-row_product
+  Risk_hot_rain_discrete_annual[,i]<-risk_annual
+}
 
 median_risk_hot_rain<-apply(Risk_hot_rain_annual,1,median)
-percentile_risk_low_hot_rain<-apply(Risk_hot_rain_annual,1,quantile,probs=c(.25))
-percentile_risk_high_hot_rain<-apply(Risk_hot_rain_annual,1,quantile,probs=c(.75))
+percentile_risk_low_hot_rain<-apply(Risk_hot_rain_annual,1,quantile,probs=c(.025))
+percentile_risk_high_hot_rain<-apply(Risk_hot_rain_annual,1,quantile,probs=c(.975))
 risk_overall_hot_rain<-data.frame(Time=seq(from=0,to=duration,by=time_step),risk_median=median_risk_hot_rain,risk_lower=percentile_risk_low_hot_rain,risk_higher=percentile_risk_high_hot_rain,Condition=rep("Hot water",1501),Type=rep("Rain showerhead",1501))
 Final_risk_hot_rain_child<-data.frame(Risk=as.vector(Risk_hot_rain_child_annual),Group=rep("Child",1000),Condition=rep("Hot water_rain showerhead",1000))
 Final_risk_hot_rain_adult<-data.frame(Risk=as.vector(Risk_hot_rain_adult_annual),Group=rep("Adult",1000),Condition=rep("Hot water_rain showerhead",1000))
 Final_risk_hot_rain_elderly<-data.frame(Risk=as.vector(Risk_hot_rain_elderly_annual),Group=rep("Elderly",1000),Condition=rep("Hot water_rain showerhead",1000))
-Final_risk_hot_rain_DALY<-data.frame(Risk=as.vector(Risk_hot_rain_DALY),Group=rep("DALY",1000),Condition=rep("Hot water_rain showerhead",1000))
-Risk_hot_rain_discrete_1<-data.frame(Risk=Risk_hot_rain_discrete_annual[1,],Time=rep("A",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_2<-data.frame(Risk=Risk_hot_rain_discrete_annual[2,],Time=rep("B",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_3<-data.frame(Risk=Risk_hot_rain_discrete_annual[3,],Time=rep("C",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_4<-data.frame(Risk=Risk_hot_rain_discrete_annual[4,],Time=rep("D",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_5<-data.frame(Risk=Risk_hot_rain_discrete_annual[5,],Time=rep("E",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_6<-data.frame(Risk=Risk_hot_rain_discrete_annual[6,],Time=rep("F",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_7<-data.frame(Risk=Risk_hot_rain_discrete_annual[7,],Time=rep("G",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_8<-data.frame(Risk=Risk_hot_rain_discrete_annual[8,],Time=rep("H",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_9<-data.frame(Risk=Risk_hot_rain_discrete_annual[9,],Time=rep("I",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_10<-data.frame(Risk=Risk_hot_rain_discrete_annual[10,],Time=rep("J",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_11<-data.frame(Risk=Risk_hot_rain_discrete_annual[11,],Time=rep("K",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_12<-data.frame(Risk=Risk_hot_rain_discrete_annual[12,],Time=rep("L",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_13<-data.frame(Risk=Risk_hot_rain_discrete_annual[13,],Time=rep("M",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_14<-data.frame(Risk=Risk_hot_rain_discrete_annual[14,],Time=rep("N",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
-Risk_hot_rain_discrete_15<-data.frame(Risk=Risk_hot_rain_discrete_annual[15,],Time=rep("O",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Final_risk_hot_rain_DALY_child<-data.frame(Risk=unlist(Risk_hot_rain_DALY_child),Group=rep("Child",1000),Condition=rep("Hot water_rain showerhead",1000))
+Final_risk_hot_rain_DALY_adult<-data.frame(Risk=unlist(Risk_hot_rain_DALY_adult),Group=rep("Adult",1000),Condition=rep("Hot water_rain showerhead",1000))
+Final_risk_hot_rain_DALY_elderly<-data.frame(Risk=unlist(Risk_hot_rain_DALY_elderly),Group=rep("Elderly",1000),Condition=rep("Hot water_rain showerhead",1000))
+Risk_hot_rain_discrete_1<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[1,]),Time=rep("A",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_2<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[2,]),Time=rep("B",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_3<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[3,]),Time=rep("C",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_4<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[4,]),Time=rep("D",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_5<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[5,]),Time=rep("E",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_6<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[6,]),Time=rep("F",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_7<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[7,]),Time=rep("G",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_8<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[8,]),Time=rep("H",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_9<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[9,]),Time=rep("I",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_10<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[10,]),Time=rep("J",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_11<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[11,]),Time=rep("K",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_12<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[12,]),Time=rep("L",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_13<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[13,]),Time=rep("M",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_14<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[14,]),Time=rep("N",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
+Risk_hot_rain_discrete_15<-data.frame(Risk=unlist(Risk_hot_rain_discrete_annual[15,]),Time=rep("O",1000),Condition=rep("Hot water",1000),Type=rep("Rain showerhead",1000))
 Risk_hot_rain_discrete_overall<-rbind(Risk_hot_rain_discrete_1,Risk_hot_rain_discrete_2,Risk_hot_rain_discrete_3,Risk_hot_rain_discrete_4,Risk_hot_rain_discrete_5,Risk_hot_rain_discrete_6,Risk_hot_rain_discrete_7,Risk_hot_rain_discrete_8,Risk_hot_rain_discrete_9,Risk_hot_rain_discrete_10,Risk_hot_rain_discrete_11,Risk_hot_rain_discrete_12,Risk_hot_rain_discrete_13,Risk_hot_rain_discrete_14,Risk_hot_rain_discrete_15)
 
 
@@ -636,28 +827,32 @@ Risk_over_time<-rbind(risk_overall_cold_conv,risk_overall_hot_conv,risk_overall_
 
 Final_risk_overall<-rbind(Final_risk_cold_rain_child,Final_risk_cold_rain_adult,Final_risk_cold_rain_elderly,Final_risk_hot_rain_child,Final_risk_hot_rain_adult,Final_risk_hot_rain_elderly,Final_risk_cold_conv_child,Final_risk_cold_conv_adult,Final_risk_cold_conv_elderly,Final_risk_hot_conv_child,Final_risk_hot_conv_adult,Final_risk_hot_conv_elderly)
 Final_risk_overall$Group<-factor(Final_risk_overall$Group,levels = c("Child","Adult","Elderly"))
-Final_risk_DALY<-rbind(Final_risk_cold_conv_DALY,Final_risk_cold_rain_DALY,Final_risk_hot_conv_DALY,Final_risk_hot_rain_DALY)
-Risk_discrete<-rbind(Risk_cold_conv_discrete_overall,Risk_cold_rain_discrete_overall,Risk_hot_conv_discrete_overall,Risk_hot_rain_discrete_overall)
+Final_risk_DALY<-rbind(Final_risk_cold_conv_DALY_child,Final_risk_cold_conv_DALY_adult,Final_risk_cold_conv_DALY_elderly,Final_risk_cold_rain_DALY_child,Final_risk_cold_rain_DALY_adult,Final_risk_cold_rain_DALY_elderly,Final_risk_hot_conv_DALY_child,Final_risk_hot_conv_DALY_adult,Final_risk_hot_conv_DALY_elderly,Final_risk_hot_rain_DALY_child,Final_risk_hot_rain_DALY_adult,Final_risk_hot_rain_DALY_elderly)
+Risk_discrete_cold<-rbind(Risk_cold_conv_discrete_overall,Risk_cold_rain_discrete_overall)
+Risk_discrete_hot<-rbind(Risk_hot_conv_discrete_overall,Risk_hot_rain_discrete_overall)
 Risk_threshold<-data.frame(Time=seq(from=0,to=duration,by=time_step),Risk=rep(1e-4,duration/time_step+1))
 DALY_threshould<-data.frame(Time=seq(from=0,to=duration,by=time_step),Risk=rep(1e-6,duration/time_step+1))
-ggplot(Risk_over_time,aes(x=Time,y=risk_median))+geom_line()+scale_y_continuous(trans='log10',breaks=c(1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1),label=scientific_10)+scale_x_continuous(breaks = seq(0,duration,b=1))+xlab("Time (min)")+ylab("Cumulative risk of infection")+geom_ribbon(aes(x=Time,ymax=risk_higher,ymin=risk_lower,fill=Condition),linetype="dashed",alpha=0.5,col="black",show.legend = FALSE)+scale_fill_brewer(palette="Pastel1",direction=-1)+facet_grid(Condition~Type)+theme(panel.grid.major = element_blank(), 
+ggplot(Risk_over_time,aes(x=Time,y=risk_median))+geom_line()+scale_y_continuous(trans='log10',breaks=c(1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1),label=function(x) parse(text = scientific_10(x)))+scale_x_continuous(breaks = seq(0,duration,b=1))+xlab("Time (min)")+ylab("Cumulative annual risk of infection")+geom_ribbon(aes(x=Time,ymax=risk_higher,ymin=risk_lower,fill=Condition),linetype="dashed",alpha=0.5,col="black",show.legend = FALSE)+scale_fill_brewer(palette="Pastel1",direction=-1)+facet_grid(Condition~Type)+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                                                                                                                                           panel.grid.minor = element_blank(),panel.background = element_blank(),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                           panel.border = element_rect(colour = "black", fill=NA, size=2),text=element_text(size = 18))+geom_line(Risk_threshold,mapping=aes(Time,Risk),colour="red",linetype="dashed")
 
-ggplot(Final_risk_overall,mapping=aes(Group,Risk,fill=Condition))+stat_boxplot(geom = "errorbar", width = 0.4,position=position_dodge(0.8))+geom_boxplot(outlier.shape = NA,width=0.6,position =position_dodge(0.8))+ylab("Risk of illness")+scale_y_continuous(trans='log10',breaks = c(1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1),label=scientific_10)+theme(panel.grid.major = element_blank(), 
+ggplot(Final_risk_overall,mapping=aes(Group,Risk,fill=Condition))+geom_violin(Width=0.6,position =position_dodge(0.8))+stat_boxplot(geom = "errorbar", width = 0.4,position=position_dodge(0.8))+geom_boxplot(outlier.shape = NA,width=0.6,position =position_dodge(0.8))+ylab("Risk of illness")+scale_y_continuous(trans='log10',breaks = c(1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1),limits = c(1e-8, 1e-3),label=function(x) parse(text = scientific_10(x)))+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                panel.grid.minor = element_blank(),panel.background = element_blank(),
                                                                                                                                                                                                                                                                                                                                                panel.border = element_rect(colour = "black", fill=NA, size=2),text = element_text(size = 18),axis.title.x = element_blank())+scale_fill_brewer(palette="RdBu",direction=-1)
-ggplot(Final_risk_DALY,aes(Condition,Risk))+stat_boxplot(geom = "errorbar", width = 0.2,position=position_dodge(0.6))+geom_boxplot(outlier.shape = NA,width=0.4,position =position_dodge(0.6),fill="#FFCC99")+ylab("DALY")+scale_y_continuous(trans='log10',breaks = c(1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1),label=scientific_10)+theme(panel.grid.major = element_blank(), 
+ggplot(Final_risk_DALY,mapping=aes(Group,Risk,fill=Condition))+geom_violin(Width=0.6,position =position_dodge(0.8))+stat_boxplot(geom = "errorbar", width = 0.4,position=position_dodge(0.8))+geom_boxplot(outlier.shape = NA,width=0.6,position =position_dodge(0.8))+ylab("DALY (Legionnaire's disease)")+scale_y_continuous(trans='log10',breaks = c(1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1),label=function(x) parse(text = scientific_10(x)))+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                                   panel.grid.minor = element_blank(),panel.background = element_blank(),
-                                                                                                                                                                                                                                                                                                                                                                  panel.border = element_rect(colour = "black", fill=NA, size=2),text = element_text(size=18),axis.title.x = element_blank())
-ggplot(Risk_discrete,aes(Time,Risk,fill=Condition))+stat_boxplot(geom = "errorbar", width = 0.4,position=position_dodge(2))+geom_boxplot(outlier.shape = NA,width=0.6,position =position_dodge(2))+xlab("Time (min)")+ylab("Risk of infection")+scale_x_discrete(labels=c("0-1","1-2","2-3","3-4","4-5","5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14-15"))+scale_y_continuous(trans='log10',breaks = c(1e-12,1e-10,1e-8,1e-6,1e-4,1e-2,1),label=scientific_10)+facet_grid(Condition~Type)+theme(panel.grid.major = element_blank(), 
+                                                                                                                                                                                                                                                                                                                                                                  panel.border = element_rect(colour = "black", fill=NA, size=2),text = element_text(size=18),axis.title.x = element_blank())+scale_fill_brewer(palette="RdBu",direction=-1)
+ggplot(Risk_discrete_cold,aes(Time,Risk))+stat_boxplot(geom = "errorbar", width = 0.4,position=position_dodge(2))+geom_boxplot(outlier.shape = NA,width=0.6,position =position_dodge(2),fill="lightblue")+xlab("Time (min)")+ylab("Risk of infection")+scale_x_discrete(labels=c("0-1","1-2","2-3","3-4","4-5","5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14-15"))+scale_y_continuous(trans='log10',   breaks = c(1e-6, 1e-5, 1e-4), limits = c(1e-6, 1e-4),label=function(x) parse(text = scientific_10(x)))+facet_grid(Type~.)+theme(panel.grid.major = element_blank(), 
                                                                                                                                                                                                                                                                                                                                                panel.grid.minor = element_blank(),panel.background = element_blank(),
-                                                                                                                                                                                                                                                                                                                                               panel.border = element_rect(colour = "black", fill=NA, size=2),text = element_text(size=18))+scale_fill_brewer(palette="RdBu",direction=-1)
+                                                                                                                                                                                                                                                                                                                                               panel.border = element_rect(colour = "black", fill=NA, size=2),text = element_text(size=18))+geom_line(Risk_threshold,mapping=aes(Time,Risk),colour="red",linetype="dashed")
+ggplot(Risk_discrete_hot,aes(Time,Risk))+stat_boxplot(geom = "errorbar", width = 0.4,position=position_dodge(2))+geom_boxplot(outlier.shape = NA,width=0.6,position =position_dodge(2),fill="pink")+xlab("Time (min)")+ylab("Risk of infection")+scale_x_discrete(labels=c("0-1","1-2","2-3","3-4","4-5","5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14-15"))+scale_y_continuous(trans='log10',label=function(x) parse(text = scientific_10(x)))+facet_grid(Type~.)+theme(panel.grid.major = element_blank(), 
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             panel.grid.minor = element_blank(),panel.background = element_blank(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             panel.border = element_rect(colour = "black", fill=NA, size=2),text = element_text(size=18))+geom_line(Risk_threshold,mapping=aes(Time,Risk),colour="red",linetype="dashed")
 # sensitivity analysis
-Spearman_cold_conv<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_cold_conv_1,Generation_rate_2=Generation_cold_conv_2,Generation_rate_3=Generation_cold_conv_3,Generation_rate_4=Generation_cold_conv_4,Generation_rate_5=Generation_cold_conv_5,Removal_rate_1a=removal_rate_other_1a_cold_conv,Removal_rate_2a=removal_rate_other_2a_cold_conv,Removal_rate_3a=removal_rate_other_3a_cold_conv,Removal_rate_4a=removal_rate_other_4a_cold_conv,Removal_rate_5a=removal_rate_other_5a_cold_conv,Removal_rate_1b=removal_rate_other_1b_cold_conv,Removal_rate_2b=removal_rate_other_2b_cold_conv,Removal_rate_3b=removal_rate_other_3b_cold_conv,Removal_rate_4b=removal_rate_other_4b_cold_conv,Removal_rate_5b=removal_rate_other_5b_cold_conv,Concentration_init=Init_con_cold,Ventilation_1=Ventilation_cold_conv_1,Ventilation_2=Ventilation_cold_conv_2,Risk_cold_conv=Risk_cold_conv_annual[duration/time_step+1,])
-Spearman_cold_rain<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_cold_rain_1,Generation_rate_2=Generation_cold_rain_2,Generation_rate_3=Generation_cold_rain_3,Generation_rate_4=Generation_cold_rain_4,Generation_rate_5=Generation_cold_rain_5,Removal_rate_1a=removal_rate_other_1a_cold_rain,Removal_rate_2a=removal_rate_other_2a_cold_rain,Removal_rate_3a=removal_rate_other_3a_cold_rain,Removal_rate_4a=removal_rate_other_4a_cold_rain,Removal_rate_5a=removal_rate_other_5a_cold_rain,Removal_rate_1b=removal_rate_other_1b_cold_rain,Removal_rate_2b=removal_rate_other_2b_cold_rain,Removal_rate_3b=removal_rate_other_3b_cold_rain,Removal_rate_4b=removal_rate_other_4b_cold_rain,Removal_rate_5b=removal_rate_other_5b_cold_rain,Concentration_init=Init_con_cold,Ventilation_1=Ventilation_cold_rain_1,Ventilation_2=Ventilation_cold_rain_2,Risk_cold_rain=Risk_cold_rain_annual[duration/time_step+1,])
-Spearman_hot_conv<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,DE6=DE6,DE7=DE7,DE8=DE8,DE9=DE9,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_hot_conv_1b,Generation_rate_2=Generation_hot_conv_2b,Generation_rate_3=Generation_hot_conv_3b,Generation_rate_4=Generation_hot_conv_4b,Generation_rate_5=Generation_hot_conv_5b,Generation_rate_6=Generation_hot_conv_6b,Generation_rate_7=Generation_hot_conv_7b,Generation_rate_8=Generation_hot_conv_8b,Generation_rate_9=Generation_hot_conv_9b,Removal_rate_1a=removal_rate_other_1a_hot_conv,Removal_rate_2a=removal_rate_other_2a_hot_conv,Removal_rate_3a=removal_rate_other_3a_hot_conv,Removal_rate_4a=removal_rate_other_4a_hot_conv,Removal_rate_5a=removal_rate_other_5a_hot_conv,Removal_rate_6a=removal_rate_other_6a_hot_conv,Removal_rate_7a=removal_rate_other_7a_hot_conv,Removal_rate_8a=removal_rate_other_8a_hot_conv,Removal_rate_9a=removal_rate_other_9a_hot_conv,Removal_rate_1b=removal_rate_other_1b_hot_conv,Removal_rate_2b=removal_rate_other_2b_hot_conv,Removal_rate_3b=removal_rate_other_3b_hot_conv,Removal_rate_4b=removal_rate_other_4b_hot_conv,Removal_rate_5b=removal_rate_other_5b_hot_conv,Removal_rate_6b=removal_rate_other_6b_hot_conv,Removal_rate_7b=removal_rate_other_7b_hot_conv,Removal_rate_8b=removal_rate_other_8b_hot_conv,Removal_rate_9b=removal_rate_other_9b_hot_conv,Concentration_init=Init_con_hot,Ventilation_1=Ventilation_hot_conv_1,Ventilation_2=Ventilation_hot_conv_2,Risk_hot_conv=Risk_hot_conv_annual[duration/time_step+1,])
-Spearman_hot_rain<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,DE6=DE6,DE7=DE7,DE8=DE8,DE9=DE9,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_hot_rain_1b,Generation_rate_2=Generation_hot_rain_2b,Generation_rate_3=Generation_hot_rain_3b,Generation_rate_4=Generation_hot_rain_4b,Generation_rate_5=Generation_hot_rain_5b,Generation_rate_6=Generation_hot_rain_6b,Generation_rate_7=Generation_hot_rain_7b,Generation_rate_8=Generation_hot_rain_8b,Generation_rate_9=Generation_hot_rain_9b,Removal_rate_1a=removal_rate_other_1a_hot_rain,Removal_rate_2a=removal_rate_other_2a_hot_rain,Removal_rate_3a=removal_rate_other_3a_hot_rain,Removal_rate_4a=removal_rate_other_4a_hot_rain,Removal_rate_5a=removal_rate_other_5a_hot_rain,Removal_rate_6a=removal_rate_other_6a_hot_rain,Removal_rate_7a=removal_rate_other_7a_hot_rain,Removal_rate_8a=removal_rate_other_8a_hot_rain,Removal_rate_9a=removal_rate_other_9a_hot_rain,Removal_rate_1b=removal_rate_other_1b_hot_rain,Removal_rate_2b=removal_rate_other_2b_hot_rain,Removal_rate_3b=removal_rate_other_3b_hot_rain,Removal_rate_4b=removal_rate_other_4b_hot_rain,Removal_rate_5b=removal_rate_other_5b_hot_rain,Removal_rate_6b=removal_rate_other_6b_hot_rain,Removal_rate_7b=removal_rate_other_7b_hot_rain,Removal_rate_8b=removal_rate_other_8b_hot_rain,Removal_rate_9b=removal_rate_other_9b_hot_rain,Concentration_init=Init_con_hot,Ventilation_1=Ventilation_hot_rain_1,Ventilation_2=Ventilation_hot_rain_2,Risk_hot_conv=Risk_hot_rain_annual[duration/time_step+1,])
+Spearman_cold_conv<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_cold_conv_1,Generation_rate_2=Generation_cold_conv_2,Generation_rate_3=Generation_cold_conv_3,Generation_rate_4=Generation_cold_conv_4,Generation_rate_5=Generation_cold_conv_5,Removal_rate_1a=removal_rate_other_1a_cold_conv,Removal_rate_2a=removal_rate_other_2a_cold_conv,Removal_rate_3a=removal_rate_other_3a_cold_conv,Removal_rate_4a=removal_rate_other_4a_cold_conv,Removal_rate_5a=removal_rate_other_5a_cold_conv,Removal_rate_1b=removal_rate_other_1b_cold_conv,Removal_rate_2b=removal_rate_other_2b_cold_conv,Removal_rate_3b=removal_rate_other_3b_cold_conv,Removal_rate_4b=removal_rate_other_4b_cold_conv,Removal_rate_5b=removal_rate_other_5b_cold_conv,Concentration_init=Init_con_cold,Ventilation_1=Ventilation_cold_conv_1,Ventilation_2=Ventilation_cold_conv_2,Risk_cold_conv=Risk_cold_conv[duration/time_step+1,])
+Spearman_cold_rain<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_cold_rain_1,Generation_rate_2=Generation_cold_rain_2,Generation_rate_3=Generation_cold_rain_3,Generation_rate_4=Generation_cold_rain_4,Generation_rate_5=Generation_cold_rain_5,Removal_rate_1a=removal_rate_other_1a_cold_rain,Removal_rate_2a=removal_rate_other_2a_cold_rain,Removal_rate_3a=removal_rate_other_3a_cold_rain,Removal_rate_4a=removal_rate_other_4a_cold_rain,Removal_rate_5a=removal_rate_other_5a_cold_rain,Removal_rate_1b=removal_rate_other_1b_cold_rain,Removal_rate_2b=removal_rate_other_2b_cold_rain,Removal_rate_3b=removal_rate_other_3b_cold_rain,Removal_rate_4b=removal_rate_other_4b_cold_rain,Removal_rate_5b=removal_rate_other_5b_cold_rain,Concentration_init=Init_con_cold,Ventilation_1=Ventilation_cold_rain_1,Ventilation_2=Ventilation_cold_rain_2,Risk_cold_rain=Risk_cold_rain[duration/time_step+1,])
+Spearman_hot_conv<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,DE6=DE6,DE7=DE7,DE8=DE8,DE9=DE9,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_hot_conv_1b,Generation_rate_2=Generation_hot_conv_2b,Generation_rate_3=Generation_hot_conv_3b,Generation_rate_4=Generation_hot_conv_4b,Generation_rate_5=Generation_hot_conv_5b,Generation_rate_6=Generation_hot_conv_6b,Generation_rate_7=Generation_hot_conv_7b,Generation_rate_8=Generation_hot_conv_8b,Generation_rate_9=Generation_hot_conv_9b,Removal_rate_1a=removal_rate_other_1a_hot_conv,Removal_rate_2a=removal_rate_other_2a_hot_conv,Removal_rate_3a=removal_rate_other_3a_hot_conv,Removal_rate_4a=removal_rate_other_4a_hot_conv,Removal_rate_5a=removal_rate_other_5a_hot_conv,Removal_rate_6a=removal_rate_other_6a_hot_conv,Removal_rate_7a=removal_rate_other_7a_hot_conv,Removal_rate_8a=removal_rate_other_8a_hot_conv,Removal_rate_9a=removal_rate_other_9a_hot_conv,Removal_rate_1b=removal_rate_other_1b_hot_conv,Removal_rate_2b=removal_rate_other_2b_hot_conv,Removal_rate_3b=removal_rate_other_3b_hot_conv,Removal_rate_4b=removal_rate_other_4b_hot_conv,Removal_rate_5b=removal_rate_other_5b_hot_conv,Removal_rate_6b=removal_rate_other_6b_hot_conv,Removal_rate_7b=removal_rate_other_7b_hot_conv,Removal_rate_8b=removal_rate_other_8b_hot_conv,Removal_rate_9b=removal_rate_other_9b_hot_conv,Concentration_init=Init_con_hot,Ventilation_1=Ventilation_hot_conv_1,Ventilation_2=Ventilation_hot_conv_2,Risk_hot_conv=Risk_hot_conv[duration/time_step+1,])
+Spearman_hot_rain<-data.frame(DE1=DE1,DE2=DE2,DE3=DE3,DE4=DE4,DE5=DE5,DE6=DE6,DE7=DE7,DE8=DE8,DE9=DE9,Inhalation_rate=Inhalation,Dose_response=r_inf,Generation_rate_1=Generation_hot_rain_1b,Generation_rate_2=Generation_hot_rain_2b,Generation_rate_3=Generation_hot_rain_3b,Generation_rate_4=Generation_hot_rain_4b,Generation_rate_5=Generation_hot_rain_5b,Generation_rate_6=Generation_hot_rain_6b,Generation_rate_7=Generation_hot_rain_7b,Generation_rate_8=Generation_hot_rain_8b,Generation_rate_9=Generation_hot_rain_9b,Removal_rate_1a=removal_rate_other_1a_hot_rain,Removal_rate_2a=removal_rate_other_2a_hot_rain,Removal_rate_3a=removal_rate_other_3a_hot_rain,Removal_rate_4a=removal_rate_other_4a_hot_rain,Removal_rate_5a=removal_rate_other_5a_hot_rain,Removal_rate_6a=removal_rate_other_6a_hot_rain,Removal_rate_7a=removal_rate_other_7a_hot_rain,Removal_rate_8a=removal_rate_other_8a_hot_rain,Removal_rate_9a=removal_rate_other_9a_hot_rain,Removal_rate_1b=removal_rate_other_1b_hot_rain,Removal_rate_2b=removal_rate_other_2b_hot_rain,Removal_rate_3b=removal_rate_other_3b_hot_rain,Removal_rate_4b=removal_rate_other_4b_hot_rain,Removal_rate_5b=removal_rate_other_5b_hot_rain,Removal_rate_6b=removal_rate_other_6b_hot_rain,Removal_rate_7b=removal_rate_other_7b_hot_rain,Removal_rate_8b=removal_rate_other_8b_hot_rain,Removal_rate_9b=removal_rate_other_9b_hot_rain,Concentration_init=Init_con_hot,Ventilation_1=Ventilation_hot_rain_1,Ventilation_2=Ventilation_hot_rain_2,Risk_hot_rain=Risk_hot_rain[duration/time_step+1,])
 
 Data_spearman_cold_conv<-numeric()
 for (i in 1:25){
