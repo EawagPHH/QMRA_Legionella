@@ -11,12 +11,7 @@
 3. Heat\_map\_cold\_final. R: Codes for generating risk heatmap at cold water conditions based on first draw and flush sample concentrations (Figure 6A).
 4. Heat\_map\_hot\_final. R: Codes for generating risk heatmap at hot water conditions based on first draw and flush sample concentrations (Figure 6B).
 5. Alternative\_scenario\_final. R: Codes for alternative scenario modeling (Figure 7).
-6. Regression\_model\_final.R: Codes for fitting the negative-binomial linear regression model to describe the relationship betweeen first draw and flush sample concentrations (Figure S3).
-7. critical\_concentration\_cold\_final.R and critical\_concentration\_hot\_final.R: Codes for generating critical concentration of L. pneumopihla at cold and hot water conditions (Figure S8).
+6. Regression\_model\_final.R: Codes for fitting the negative-binomial linear regression model to describe the relationship between first draw and flush sample concentrations (Figure S3).
+7. critical\_concentration\_cold\_final.R and critical\_concentration\_hot\_final.R: Codes for generating critical concentration of L. pneumophila at cold and hot water conditions (Figure S8).
 8. Content: Codes for exposure modeling including the aerosol modeling equations and parameters.
-9. DBDA2E-utilities: Codes for functions used for Bayesian data analysis.  
-
-
-
-
-
+9. DBDA2E-utilities: Codes for functions used for Bayesian data analysis.
